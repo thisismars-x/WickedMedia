@@ -1,0 +1,31 @@
+Q. How to install?
+Ans. 
+  - Make sure to have rust, and cargo(use rustup to install)
+  - Set global variable JENNIFER to the directory pointing here
+  So, if pwd /home/user/Documents/a/b/jennifer,
+  Set JENNIFER=/home/user/Documents/a/b (this is for relative paths)
+  - Go to https://download.kiwix.org/zim/wikipedia/, and download some .zim file
+  It is better to download things that look like en_*_maxi.all
+  If instead of maxi, mini or nopic options are installed the files are smaller
+  but images/stylings are not downloaded.
+  A good option is this: https://download.kiwix.org/zim/wikipedia/wikipedia_en_computer_maxi_2025-12.zim
+  - Create a new folder in this repo called `store`, and copy this .zim file over here
+  - Run cargo run --release, things get installed and build, be patient
+  - `localhost:8999` should now work
+
+Q. How to download the entire wikipedia?
+Ans. 
+  Trivial. Download https://download.kiwix.org/zim/wikipedia/wikipedia_en_all_maxi_2026-02.zim (#NOTE: 115G)
+  Put it in `store` like before, delete `output` if it exists and cargo run, wait a little
+  for everything to compile, and binary zim files to disassemble.
+
+Q. What else can I save offline?
+Ans. 
+  The openZim project has a large number of projects it maintains offline binary .zim files for.
+  Here are all the things you can download-
+  - gutenberg
+  - wikibooks
+  - wikinews
+  - wikiquote
+  - stack_exchange
+  - free_code_camp, etc.
