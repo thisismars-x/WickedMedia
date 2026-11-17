@@ -1,17 +1,17 @@
-use std::fs::{File, self};
-use std::path::{Path};
-use std::io::Result;
 use std::env::var;
+use std::fs::{self, File};
+use std::io::Result;
+use std::path::Path;
 
-mod zim;
 mod server;
+mod zim;
 use zim::ZimClient;
 
 // .zim files should be downloaded and moved over here
 const STORE_DIR: &str = "store";
-// all  generated files go here, DO NOT CREATE this directory 
-// on your own, if you add a new .zim file delete this folder 
-// and run this program. 
+// all  generated files go here, DO NOT CREATE this directory
+// on your own, if you add a new .zim file delete this folder
+// and run this program.
 // Generating the files shouldn't take long at all(rayon is used for that reason)
 const OUTPUT_DIR: &str = "output";
 
@@ -34,12 +34,16 @@ fn count_files_recursive(path: &Path) -> usize {
 }
 
 fn main() -> Result<()> {
-    let base_dir = var("JENNIFER").expect("SET `$JENNIFER` variable to know base path of assets for the life of this project");
+    let base_dir = var("JENNIFER").expect(
+        "SET `$JENNIFER` variable to know base path of assets for the life of this project",
+    );
     let store = Path::new(&base_dir).join("jennifer/store");
     let output = Path::new(&base_dir).join("jennifer/output");
 
     if !store.exists() {
-        panic!("FATAL: No `store/` folder found. All .zim files should go here. Go download .zim files of your chosing: https://download.kiwix.org/zim/wikipedia/")
+        panic!(
+            "FATAL: No `store/` folder found. All .zim files should go here. Go download .zim files of your chosing: https://download.kiwix.org/zim/wikipedia/"
+        )
     }
 
     if !output.exists() {
@@ -54,8 +58,8 @@ fn main() -> Result<()> {
             if path.extension().and_then(|s| s.to_str()) == Some("zim") {
                 println!("LOG: Processing {:?}", path);
 
-                // if extracting a file fails, move on 
-                // there are perhaps a million files in the .zim file you're using 
+                // if extracting a file fails, move on
+                // there are perhaps a million files in the .zim file you're using
                 // a single file does not matter much
                 match File::open(&path) {
                     Ok(mut file) => {
@@ -69,18 +73,22 @@ fn main() -> Result<()> {
                 }
             }
         }
-
-    } else { 
+    } else {
         // if OUTPUT_DIR already exists, does not extract anything, if you add new files to
         // STORE_DIR, delete OUTPUT_DIR
         println!("LOG: {} exists. Serving now!", OUTPUT_DIR);
     }
 
-    println!("LOG: input zim file stored at `{STORE_DIR}` has {} files.", count_files_recursive(store.as_path())); 
-    println!("LOG: generated webpages at `{OUTPUT_DIR}/C` has {} files. [RECURSIVE SEARCH]", count_files_recursive(output.join("C").as_path()));
+    println!(
+        "LOG: input zim file stored at `{STORE_DIR}` has {} files.",
+        count_files_recursive(store.as_path())
+    );
+    println!(
+        "LOG: generated webpages at `{OUTPUT_DIR}/C` has {} files. [RECURSIVE SEARCH]",
+        count_files_recursive(output.join("C").as_path())
+    );
 
     // Finally run the server
     server::app()?;
     Ok(())
 }
-

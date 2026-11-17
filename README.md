@@ -43,6 +43,7 @@ Because so much of everything is online now. Seems risky, to depend on the relia
 
 I decide to **put the internet in a 512gb hard disk, and stay secure with WickedMedia**!
 
+Want to check it out in motion? [Here!](./base/usage.mp4)
 
 ## License
 

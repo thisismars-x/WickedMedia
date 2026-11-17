@@ -5,43 +5,43 @@
 
 #![allow(unused_variables, dead_code)]
 
-use std::io::{Read, Write, Seek, SeekFrom, Result, Error, ErrorKind};
-use std::fs::{File, self};
-use std::path::{Path};
+use rayon::prelude::*;
 use std::collections::HashMap;
+use std::fs::{self, File};
+use std::io::{Error, ErrorKind, Read, Result, Seek, SeekFrom, Write};
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 use xz2::read::XzDecoder;
 use zstd::stream::read::Decoder as ZstdDecoder;
-use rayon::prelude::*;
-use std::sync::{Arc, Mutex};
 
-fn read_1_bytes(file: &mut File) -> Result<u8>{
+fn read_1_bytes(file: &mut File) -> Result<u8> {
     let mut buffer = [0u8; 1];
     file.read_exact(&mut buffer)?;
 
     Ok(u8::from_le_bytes(buffer))
 }
-fn read_2_bytes(file: &mut File) -> Result<u16>{
+fn read_2_bytes(file: &mut File) -> Result<u16> {
     let mut buffer = [0u8; 2];
     file.read_exact(&mut buffer)?;
 
     Ok(u16::from_le_bytes(buffer))
 }
 
-fn read_4_bytes(file: &mut File) -> Result<u32>{
+fn read_4_bytes(file: &mut File) -> Result<u32> {
     let mut buffer = [0u8; 4];
     file.read_exact(&mut buffer)?;
 
     Ok(u32::from_le_bytes(buffer))
 }
 
-fn read_8_bytes(file: &mut File) -> Result<u64>{
+fn read_8_bytes(file: &mut File) -> Result<u64> {
     let mut buffer = [0u8; 8];
     file.read_exact(&mut buffer)?;
 
     Ok(u64::from_le_bytes(buffer))
 }
 
-fn read_16_bytes(file: &mut File) -> Result<u128>{
+fn read_16_bytes(file: &mut File) -> Result<u128> {
     let mut buffer = [0u8; 16];
     file.read_exact(&mut buffer)?;
 
@@ -54,7 +54,9 @@ fn read_string_upto_null_byte(file: &mut File) -> Result<String> {
 
     loop {
         file.read_exact(&mut buffer)?;
-        if buffer[0] == 0 { break; }
+        if buffer[0] == 0 {
+            break;
+        }
         vec.push(buffer[0]);
     }
 
@@ -67,8 +69,7 @@ pub static MAGIC_HEADER: u32 = 0x44D495A;
 /// 80 byte preamble in zim file format
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct ZimHeader {
-
-    /// Recorded, although never used after assertion check to see if this header is valid. 
+    /// Recorded, although never used after assertion check to see if this header is valid.
     magic_number: u32,
 
     /// Major version of this header
@@ -105,50 +106,47 @@ pub struct ZimHeader {
 
     /// pointer to md5checksum without the checksum itself
     pub checksum_pos: u64,
-
 }
 
 impl ZimHeader {
-
     /// Initialize a new ZimHeader
     /// Be careful to start at byte offset 0, or else will throw an error
     pub fn new(file: &mut File) -> Result<Self> {
         file.seek(SeekFrom::Start(0))?;
 
-        Ok(
-            Self {
-                magic_number: {
-                    let magic_number = read_4_bytes(file)?;
-                    assert_eq!(magic_number, MAGIC_HEADER, "Unrecognized file format. Conflicting magic-number!");
-                    magic_number
-                },
-                maj_version: read_2_bytes(file)?,
-                min_version: read_2_bytes(file)?,
-                uuid: read_16_bytes(file)?,
-                entry_count: read_4_bytes(file)?,
-                cluster_count: read_4_bytes(file)?,
-                path_ptr_pos: read_8_bytes(file)?,
-                title_ptr_pos: read_8_bytes(file)?,
-                cluster_ptr_pos: read_8_bytes(file)?,
-                mime_list_pos: read_8_bytes(file)?,
-                main_page: read_4_bytes(file)?,
-                layout_page: read_4_bytes(file)?,
-                checksum_pos: read_8_bytes(file)?,
-            }
-        )
+        Ok(Self {
+            magic_number: {
+                let magic_number = read_4_bytes(file)?;
+                assert_eq!(
+                    magic_number, MAGIC_HEADER,
+                    "Unrecognized file format. Conflicting magic-number!"
+                );
+                magic_number
+            },
+            maj_version: read_2_bytes(file)?,
+            min_version: read_2_bytes(file)?,
+            uuid: read_16_bytes(file)?,
+            entry_count: read_4_bytes(file)?,
+            cluster_count: read_4_bytes(file)?,
+            path_ptr_pos: read_8_bytes(file)?,
+            title_ptr_pos: read_8_bytes(file)?,
+            cluster_ptr_pos: read_8_bytes(file)?,
+            mime_list_pos: read_8_bytes(file)?,
+            main_page: read_4_bytes(file)?,
+            layout_page: read_4_bytes(file)?,
+            checksum_pos: read_8_bytes(file)?,
+        })
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct ZimMimeTypeList {
-
-    /// Mime types are stored by index and mime-type. Each article in 
+    /// Mime types are stored by index and mime-type. Each article in
     /// this zim file references mime_types to find out what type of mime is being used
     pub mime_types: HashMap<u16, String>,
 }
 
 impl ZimMimeTypeList {
-
     /// Initialize MimeList after the ZimHeader, starting at offset mime_list_pos
     pub fn new(file: &mut File, mime_list_pos: u64) -> Result<Self> {
         file.seek(SeekFrom::Start(mime_list_pos))?;
@@ -156,21 +154,25 @@ impl ZimMimeTypeList {
         let mut mime_type;
         let mut mime_types = HashMap::new();
 
-        
         for i in 0.. {
             mime_type = read_string_upto_null_byte(file)?;
-            if mime_type.is_empty() { break; }
+            if mime_type.is_empty() {
+                break;
+            }
             mime_types.insert(i, mime_type);
         }
 
-        Ok(Self{mime_types})
+        Ok(Self { mime_types })
     }
 
     pub fn which_mime(&self, mime_type: u16) -> &str {
         let default_mime_type = "dat".to_string();
-        let mime_type = self.mime_types.get(&mime_type).unwrap_or(&default_mime_type).as_str();
+        let mime_type = self
+            .mime_types
+            .get(&mime_type)
+            .unwrap_or(&default_mime_type)
+            .as_str();
         match mime_type {
-
             // Core Web content
             "text/html" => "html",
             "text/css" => "css",
@@ -207,31 +209,28 @@ impl ZimMimeTypeList {
 
 #[derive(Clone, Debug)]
 pub struct ZimPathPointerList {
-    
     /// Ordered by path(<namespace><path>), using vector to retain order
     /// Also, importantly, this should hold, path_pointer_list.len() == header.entry_count
     pub path_pointer_list: Vec<u64>,
 }
 
 impl ZimPathPointerList {
-    
     /// Extracts `entry_count` number of path pointers from the zim file
     /// entry_count should be from ZimHeader
     pub fn new(file: &mut File, path_ptr_pos: u64, entry_count: u32) -> Result<Self> {
         file.seek(SeekFrom::Start(path_ptr_pos))?;
-        
+
         let mut path_pointer_list = Vec::new();
         for _ in 0..entry_count {
             path_pointer_list.push(read_8_bytes(file)?);
         }
 
-        Ok(Self{ path_pointer_list })
+        Ok(Self { path_pointer_list })
     }
 }
 
 #[derive(Clone, Debug)]
 pub enum ZimDirectoryEntry {
-
     Content {
         /// MIME type defined in ZimMimeTypeList
         mime_type: u16,
@@ -245,11 +244,11 @@ pub enum ZimDirectoryEntry {
         /// NOT USED! to know if this entry has been updated
         revision: u32,
 
-        /// which cluster number does this entry belong to 
+        /// which cluster number does this entry belong to
         cluster_number: u32,
 
-        /// inside the compressed cluster, which blob number does this 
-        /// entry belong to 
+        /// inside the compressed cluster, which blob number does this
+        /// entry belong to
         blob_number: u32,
 
         /// path as referred to in the path pointer list
@@ -286,24 +285,22 @@ pub enum ZimDirectoryEntry {
 
         /// NOT USED!
         parameter: u16,
-    }
-
+    },
 }
 
 /// List of ZimDirectoryEntry(ies) pointed to by path_ptr_pos
 #[derive(Clone, Debug)]
 pub struct ZimDirectoryEntryList(pub Vec<ZimDirectoryEntry>);
 
-/// Path pointer points to directory entries with first byte mime_type 
+/// Path pointer points to directory entries with first byte mime_type
 /// dictating if this entry is one of two ZimDirectoryEntryTypes(Content or Redirect)
 static REDIRECT_ENTRY: u16 = 0xffff;
 
 impl ZimDirectoryEntryList {
-
     /// Initialize ZimDirectoryEntryList with directory entries pointed
     /// to by path_ptr_list from ZimPathPointerList
     pub fn new(file: &mut File, path_ptr_list: Vec<u64>) -> Result<Self> {
-        let mut dir_entry_list = Vec::new(); 
+        let mut dir_entry_list = Vec::new();
 
         for path_ptr in path_ptr_list {
             file.seek(SeekFrom::Start(path_ptr))?;
@@ -319,44 +316,42 @@ impl ZimDirectoryEntryList {
                 let title = read_string_upto_null_byte(file)?;
                 let parameter = read_2_bytes(file)?;
 
-                dir_entry_list.push(
-                    ZimDirectoryEntry::Redirect {
-                        mime_type, 
-                        param_len,
-                        name_space, 
-                        revision,
-                        redirect_index,
-                        path,
-                        title,
-                        parameter,
-                    }
-                )
+                dir_entry_list.push(ZimDirectoryEntry::Redirect {
+                    mime_type,
+                    param_len,
+                    name_space,
+                    revision,
+                    redirect_index,
+                    path,
+                    title,
+                    parameter,
+                })
             } else {
                 let cluster_number = read_4_bytes(file)?;
                 let blob_number = read_4_bytes(file)?;
                 let path = read_string_upto_null_byte(file)?;
                 let title = {
                     let title = read_string_upto_null_byte(file)?;
-                    if title.is_empty() { path.clone() }
-                    else { title }
+                    if title.is_empty() {
+                        path.clone()
+                    } else {
+                        title
+                    }
                 };
                 let parameter = read_2_bytes(file)?;
 
-                dir_entry_list.push(
-                    ZimDirectoryEntry::Content {
-                        mime_type,
-                        param_len,
-                        name_space,
-                        revision,
-                        cluster_number,
-                        blob_number,
-                        path,
-                        title,
-                        parameter,
-                    }
-                )
+                dir_entry_list.push(ZimDirectoryEntry::Content {
+                    mime_type,
+                    param_len,
+                    name_space,
+                    revision,
+                    cluster_number,
+                    blob_number,
+                    path,
+                    title,
+                    parameter,
+                })
             }
-
         }
 
         Ok(ZimDirectoryEntryList(dir_entry_list))
@@ -364,7 +359,6 @@ impl ZimDirectoryEntryList {
 }
 
 pub struct ZimClusterPointerList {
-
     /// List of all pointers later used by ZimCluster
     pub cluster_ptr_list: Vec<u64>,
 }
@@ -375,30 +369,27 @@ impl ZimClusterPointerList {
 
         let mut cluster_ptr_list = Vec::new();
         for _ in 0..cluster_count {
-            cluster_ptr_list.push(read_8_bytes(file)?); 
+            cluster_ptr_list.push(read_8_bytes(file)?);
         }
 
-        Ok(Self{ cluster_ptr_list })
+        Ok(Self { cluster_ptr_list })
     }
 }
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
 pub enum CompressionType {
-
     /// Fourth low bits of cluster = 1
-    NONE = 1, 
+    NONE = 1,
 
-    /// Fourth low bits of cluster = 4 
+    /// Fourth low bits of cluster = 4
     LZMA2 = 4,
 
-    /// Fourth low bits of cluster = 5 
+    /// Fourth low bits of cluster = 5
     ZSTD = 5,
-
 }
 
 pub struct ZimCluster {
-
     /// Each blob stored as a vector of bytes
     pub blobs: Vec<Vec<u8>>,
 
@@ -407,55 +398,56 @@ pub struct ZimCluster {
     /// Fifth bits : 0: normal (OFFSET_SIZE=4) 1: extended (OFFSET_SIZE=8)
     pub compression_type: CompressionType,
 
-    /// offset_size determines if the cluster is extended or not 
+    /// offset_size determines if the cluster is extended or not
     /// clusters before v6 had no option to be extended
     pub offset_size: u8,
 }
 
 impl ZimCluster {
-
     pub fn new(file: &mut File, cluster_number: u32, cluster_ptr_list: Vec<u64>) -> Result<Self> {
-
         let start = cluster_ptr_list[cluster_number as usize];
-        let end= if (cluster_number as usize + 1) < cluster_ptr_list.len() {
+        let end = if (cluster_number as usize + 1) < cluster_ptr_list.len() {
             cluster_ptr_list[cluster_number as usize + 1]
         } else {
             file.metadata()?.len() // last cluster goes to end of file
         };
         file.seek(SeekFrom::Start(start))?;
 
-        let cluster_size = (end-start) as usize;
+        let cluster_size = (end - start) as usize;
         let mut raw_data = vec![0u8; cluster_size];
         file.read_exact(&mut raw_data)?;
 
         let (compression_type, uncompressed_data) = {
             let com_type = raw_data[0] & 0xf;
             match com_type {
-                1 => {
-                    (CompressionType::NONE, raw_data[1..].to_vec())
-                },
+                1 => (CompressionType::NONE, raw_data[1..].to_vec()),
 
                 4 => {
                     let mut decoder = XzDecoder::new(&raw_data[1..]);
                     let mut buf = Vec::new();
                     decoder.read_to_end(&mut buf)?;
                     (CompressionType::LZMA2, buf)
-                },
+                }
 
                 5 => {
                     let mut decoder = ZstdDecoder::new(&raw_data[1..])?;
                     let mut buf = Vec::new();
                     decoder.read_to_end(&mut buf)?;
                     (CompressionType::ZSTD, buf)
-                },
+                }
 
-                _ => return Err(Error::new(ErrorKind::Other, "Invalid `compression_type` in cluster info")),
+                _ => {
+                    return Err(Error::new(
+                        ErrorKind::Other,
+                        "Invalid `compression_type` in cluster info",
+                    ));
+                }
             }
         };
 
         let offset_size = {
-           let extended = ((raw_data[0] >> 4) & 0x01) == 1; 
-           if extended { 8 } else { 4 }
+            let extended = ((raw_data[0] >> 4) & 0x01) == 1;
+            if extended { 8 } else { 4 }
         };
 
         // reading offsets
@@ -483,25 +475,27 @@ impl ZimCluster {
         // reading blobs
         let mut blobs = Vec::new();
         for i in 0..offsets.len() - 1 {
-            let (blob_start, blob_end) = (offsets[i], offsets[i+1]);
-            if blob_end > uncompressed_data.len() || blob_start > blob_end { 
+            let (blob_start, blob_end) = (offsets[i], offsets[i + 1]);
+            if blob_end > uncompressed_data.len() || blob_start > blob_end {
                 break;
             }
 
             blobs.push(uncompressed_data[blob_start..blob_end].to_vec());
         }
 
-        Ok(Self { blobs, compression_type, offset_size: offset_size as u8 })
+        Ok(Self {
+            blobs,
+            compression_type,
+            offset_size: offset_size as u8,
+        })
     }
 
     pub fn get_blob_at(&self, index: u32) -> &Vec<u8> {
         &self.blobs[index as usize]
     }
-
 }
 
 pub struct ZimClient<P: AsRef<Path>> {
-
     /// Where are the .zim files stored?
     store: P,
 
@@ -513,46 +507,47 @@ pub struct ZimClient<P: AsRef<Path>> {
 }
 
 impl<P: AsRef<Path> + Sync> ZimClient<P> {
-
     /// Freshly initialized client, reuse for multiple queries
     pub fn new(store: P, output: P) -> Result<Self> {
         let (store_path, output_path) = (store.as_ref(), output.as_ref());
 
         // if no store directory exists, download some zim files into store directory
         if !store_path.exists() || !store_path.is_dir() {
-            return Err(Error::new(ErrorKind::NotFound, "`store` either does not exist(no .zim files, try downloading) or is not a directory"));
+            return Err(Error::new(
+                ErrorKind::NotFound,
+                "`store` either does not exist(no .zim files, try downloading) or is not a directory",
+            ));
         }
         if !output_path.exists() {
             fs::create_dir_all(&output)?;
         }
 
-        Ok(Self {
-            store, 
-            output, 
-        })
+        Ok(Self { store, output })
     }
 
     /// Extract all files, and place them under C/ M/ X/ namespaces in OUTPUT_DIR
-    /// Note that if some file fails during extraction, silently skips and continues 
+    /// Note that if some file fails during extraction, silently skips and continues
     /// with other clusters. There are millions of files, so.
     ///
     /// This should not take long, parallelized with `rayon`!
     pub fn extract_zim_file(&self, file: &mut File) -> Result<()> {
         let zim_header = ZimHeader::new(file)?;
         let zim_mime_types = ZimMimeTypeList::new(file, zim_header.mime_list_pos)?;
-        let zim_ptr_list = ZimPathPointerList::new(file, zim_header.path_ptr_pos, zim_header.entry_count)?;
+        let zim_ptr_list =
+            ZimPathPointerList::new(file, zim_header.path_ptr_pos, zim_header.entry_count)?;
         let zim_dir_entry_list = ZimDirectoryEntryList::new(file, zim_ptr_list.path_pointer_list)?;
-        let zim_cluster_list = ZimClusterPointerList::new(file, zim_header.cluster_ptr_pos, zim_header.cluster_count)?;
+        let zim_cluster_list =
+            ZimClusterPointerList::new(file, zim_header.cluster_ptr_pos, zim_header.cluster_count)?;
 
         let (entries, file) = (Arc::new(zim_dir_entry_list.0), Arc::new(Mutex::new(file)));
-        let cluster_cache: Arc<Mutex<HashMap<u32, ZimCluster>>> = Arc::new(Mutex::new(HashMap::new()));
+        let cluster_cache: Arc<Mutex<HashMap<u32, ZimCluster>>> =
+            Arc::new(Mutex::new(HashMap::new()));
 
         entries.par_iter().for_each(|entry| {
             let mut current = entry;
 
             loop {
                 match current {
-
                     ZimDirectoryEntry::Content {
                         mime_type,
                         name_space,
@@ -561,11 +556,9 @@ impl<P: AsRef<Path> + Sync> ZimClient<P> {
                         path,
                         ..
                     } => {
-
                         let mut cache = cluster_cache.lock().unwrap();
 
                         if !cache.contains_key(cluster_number) {
-
                             let mut file_guard = file.lock().unwrap();
 
                             let cluster = match ZimCluster::new(
@@ -591,11 +584,8 @@ impl<P: AsRef<Path> + Sync> ZimClient<P> {
 
                         let ext = zim_mime_types.which_mime(*mime_type);
 
-                        let mut output_path = self
-                            .output
-                            .as_ref()
-                            .join(name_space.to_string())
-                            .join(path);
+                        let mut output_path =
+                            self.output.as_ref().join(name_space.to_string()).join(path);
 
                         if output_path.extension().is_none() {
                             output_path.set_extension(ext);
@@ -614,18 +604,13 @@ impl<P: AsRef<Path> + Sync> ZimClient<P> {
                         break;
                     }
 
-                    ZimDirectoryEntry::Redirect {
-                        redirect_index,
-                        ..
-                    } => {
+                    ZimDirectoryEntry::Redirect { redirect_index, .. } => {
                         current = &entries[*redirect_index as usize];
                     }
                 }
             }
-
         });
 
         Ok(())
     }
 }
-
